@@ -1,7 +1,7 @@
 [![PyPI - Version](https://img.shields.io/pypi/v/chromosome-ideogram)](https://pypi.org/project/chromosome-ideogram)
 
 # ChromosomeIdeogram
-A python package for drawing genome-wide data on idiograms.
+A python package for drawing genome-wide data on ideograms.
 
 ## Install
 ```shell

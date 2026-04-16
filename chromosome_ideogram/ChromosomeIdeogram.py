@@ -49,55 +49,51 @@ class ChromosomeIdeogram:
         self.radius = radius
 
     def __chromosome_shape(
-        self,
-        chromosome_len: int,
-        centromere_start: int,
-        centromere_end: int,
-        y_center: Union[int, float] = 0,
-        centromere_angle: Union[int, float] = 60
+            self,
+            chromosome_len: int,
+            centromere_start: int,
+            centromere_end: int,
+            y_center: Union[int, float] = 0,
+            centromere_angle: Union[int, float] = 60
     ) -> tuple:
         angle_rad = np.radians(centromere_angle)
         slope = np.tan(angle_rad)
-        offset = self.radius
-        left_center_x = offset
-        right_center_x = chromosome_len - offset
+        r = self.radius
 
-        left_line_x = left_center_x
-        right_line_x = right_center_x
+        left_line_x = r
+        right_line_x = chromosome_len - r
 
-        adj_cen_start = centromere_start + offset
-        adj_cen_end = centromere_end + offset
-
-        mid_x = (adj_cen_start + adj_cen_end) / 2.0
-        dx = mid_x - adj_cen_start
-        h_top = max(self.radius - dx * slope, 0.0)
+        mid_x = (centromere_start + centromere_end) / 2.0
+        dx = mid_x - centromere_start
+        h_top = max(r - dx * slope, 0.0)
         h_bottom = -h_top
 
-        theta_left = np.linspace(np.pi / 2, 3 * np.pi / 2, 30)
-        left_arc_x = left_center_x + self.radius * np.cos(theta_left)
-        left_arc_y = self.radius * np.sin(theta_left) + y_center
+        theta_right = np.linspace(np.pi / 2, -np.pi / 2, 30)
+        right_arc_x = right_line_x + r * np.cos(theta_right)
+        right_arc_y = y_center + r * np.sin(theta_right)
 
-        theta_right = np.linspace(-np.pi / 2, np.pi / 2, 30)
-        right_arc_x = right_center_x + self.radius * np.cos(theta_right)
-        right_arc_y = self.radius * np.sin(theta_right) + y_center
+        theta_left = np.linspace(3 * np.pi / 2, np.pi / 2, 30)
+        left_arc_x = left_line_x + r * np.cos(theta_left)
+        left_arc_y = y_center + r * np.sin(theta_left)
 
         vertices = []
-        for x, y in zip(left_arc_x, left_arc_y):
-            vertices.append((x, y))
-        vertices.append((left_line_x, y_center + self.radius))
-        vertices.append((adj_cen_start, y_center + self.radius))
+        vertices.append((left_line_x, y_center + r))
+        vertices.append((centromere_start, y_center + r))
         vertices.append((mid_x, y_center + h_top))
-        vertices.append((adj_cen_end, y_center + self.radius))
-        vertices.append((right_line_x, y_center + self.radius))
+        vertices.append((centromere_end, y_center + r))
+        vertices.append((right_line_x, y_center + r))
 
         for x, y in zip(right_arc_x, right_arc_y):
             vertices.append((x, y))
 
-        vertices.append((right_line_x, y_center - self.radius))
-        vertices.append((adj_cen_end, y_center - self.radius))
+        vertices.append((right_line_x, y_center - r))
+        vertices.append((centromere_end, y_center - r))
         vertices.append((mid_x, y_center + h_bottom))
-        vertices.append((adj_cen_start, y_center - self.radius))
-        vertices.append((left_line_x, y_center - self.radius))
+        vertices.append((centromere_start, y_center - r))
+        vertices.append((left_line_x, y_center - r))
+
+        for x, y in zip(left_arc_x, left_arc_y):
+            vertices.append((x, y))
 
         vertices.append(vertices[0])
 
