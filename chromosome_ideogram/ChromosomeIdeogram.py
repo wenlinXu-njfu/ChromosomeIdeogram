@@ -26,10 +26,10 @@ class ChromosomeIdeogram:
                     chr_len, cent_start, cent_end = int(chr_len), int(cent_start), int(cent_end)
                     raw_karyotype[chr_name] = [chr_len, cent_start, cent_end]
         longest_chr = max([i[0] for i in raw_karyotype.values()])
-        if longest_chr / 10 ** 3 <= 100:
+        if longest_chr / 10 ** 3 < 1000:
             scale = 10 ** 3
             length_unit = 'Kb'
-        elif longest_chr / 10 ** 6 <= 100:
+        elif longest_chr / 10 ** 6 < 1000:
             scale = 10 ** 6
             length_unit = 'Mb'
         else:

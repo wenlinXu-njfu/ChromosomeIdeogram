@@ -5,7 +5,7 @@ A python package for drawing genome-wide data on ideograms.
 
 ## Install
 ```shell
-pip install chromosome-ideogram
+pip install chromosome-ideogram --upgrade
 ```
 
 ## Usage example
