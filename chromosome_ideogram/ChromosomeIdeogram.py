@@ -2,7 +2,6 @@ from typing import Union, Dict, List
 from collections import defaultdict
 import numpy as np
 import matplotlib
-import matplotlib.pyplot as plt
 from matplotlib.path import Path
 from matplotlib.patches import PathPatch
 from matplotlib.collections import PatchCollection
@@ -122,7 +121,7 @@ class ChromosomeIdeogram:
         axes.set_xlim(-1, max([i[0] for i in self.karyotype.values()]) + 1)
         axes.set_ylim(0, max(self.chr_coordinate.values()) + self.radius)
         axes.set_xlabel(self.length_unit, loc='right')
-        plt.tick_params(axis='y', length=0)
+        axes.tick_params(axis='y', length=0)
         axes.spines['top'].set_color(None)
         axes.spines['right'].set_color(None)
         axes.spines['left'].set_color(None)
@@ -188,4 +187,3 @@ class ChromosomeIdeogram:
                     label=feature_type
                 )
                 axes.add_patch(proxy)
-                plt.legend()
