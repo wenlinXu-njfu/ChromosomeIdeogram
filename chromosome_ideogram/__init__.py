@@ -1,5 +1,5 @@
-from chromosome_ideogram.ChromosomeIdeogram import ChromosomeIdeogram
+from chromosome_ideogram.ChromosomeIdeogram import data_preprocessing, ChromosomeIdeogram
 
 
-__version__ = '0.0.3'
-__all__ = ["ChromosomeIdeogram", "__version__"]
+__version__ = '0.0.4'
+__all__ = ["data_preprocessing", "ChromosomeIdeogram", "__version__"]

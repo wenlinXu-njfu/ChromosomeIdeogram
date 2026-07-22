@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "chromosome-ideogram"
-version = "0.0.3"
+version = "0.0.4"
 description = "A python package for drawing genome-wide data on idiograms."
 authors = ["Wenlin Xu <wenlinxu.njfu@outlook.com>"]
 homepage = "https://github.com/wenlinXu-njfu/ChromosomeIdeogram"
@@ -10,6 +10,7 @@ packages = [{include = "chromosome_ideogram"}]
 
 [tool.poetry.dependencies]
 python = ">=3.8"
+click = ">=8.18"
 numpy = ">=1.24.4"
 matplotlib = ">=3.7.5"
 
