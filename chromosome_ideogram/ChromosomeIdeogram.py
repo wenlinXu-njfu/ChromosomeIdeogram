@@ -123,6 +123,7 @@ class ChromosomeIdeogram:
         self.chr_coordinate = chr_coordinate
         self.chromosome_patches = {}
         self.radius = radius
+        self.handles = []
 
     def __chromosome_shape(
         self,
@@ -209,10 +210,15 @@ class ChromosomeIdeogram:
     def annotations(
         self,
         axes: matplotlib.axes.Axes,
-        annotations: str
-    ):
+        annotations: str,
+        height: Union[int, float, None] = None
+    ) -> matplotlib.axes.Axes:
+        if height is None:
+            height = self.radius * 1.5
+
         groups = defaultdict(list)
         feature_color = {}
+        legend_handles = []
 
         with open(annotations) as f:
             for line in f:
@@ -224,7 +230,6 @@ class ChromosomeIdeogram:
                 end = int(end) / self.scale
                 width = end - start
                 y_center = self.chr_coordinate[chr_name]
-                height = 0.7
                 y_bottom = y_center - height / 2
 
                 groups[(chr_name, feature_type)].append({
@@ -237,7 +242,6 @@ class ChromosomeIdeogram:
                 if feature_type not in feature_color:
                     feature_color[feature_type] = color
 
-        legend_added = set()
         for (chr_name, feature_type), rects_data in groups.items():
             rects = []
             for data in rects_data:
@@ -257,15 +261,18 @@ class ChromosomeIdeogram:
 
             axes.add_collection(collection)
 
-            if feature_type not in legend_added:
-                legend_added.add(feature_type)
-                proxy = matplotlib.patches.Rectangle(
-                    (max([i[0] for i in self.karyotype.values()]) * 10000, 0), 1, 1,
-                    facecolor=feature_color[feature_type],
-                    edgecolor='none',
-                    label=feature_type
-                )
-                axes.add_patch(proxy)
+        for feature_type, color in feature_color.items():
+            proxy = matplotlib.patches.Rectangle(
+                (0, 0),
+                width=1,
+                height=1,
+                facecolor=color,
+                edgecolor='none',
+                label=feature_type
+            )
+            legend_handles.append(proxy)
+        self.handles.extend(legend_handles)
+        return axes
 
     def draw_synteny(
         self,
@@ -273,9 +280,9 @@ class ChromosomeIdeogram:
         synteny_file: str,
         bezier_scale: float = 0.5,
         alpha: float = 0.6,
-        linewidth: float = 0
+        linewidth: Union[int, float] = 0
     ) -> matplotlib.axes.Axes:
-        # load data
+        # Load data
         records = []
         with open(synteny_file) as f:
             for line in f:
@@ -289,13 +296,13 @@ class ChromosomeIdeogram:
                     continue
                 chr1, s1, e1, chr2, s2, e2, label, color = parts[:8]
                 try:
-                    s1, e1 = int(s1), int(e1)
+                    s1, e1 = int(s1), int(e1)  # 修正：原为 int(s1), int(s1)
                     s2, e2 = int(s2), int(e2)
                 except ValueError:
                     continue
                 records.append((chr1, s1, e1, chr2, s2, e2, label.strip(), color.strip()))
 
-        # Cubic Bezier curve auxiliary function
+        # Define the auxiliary function of the Bézier curve
         def _bezier_curve(P0, P1, P2, P3, num=100):
             t = np.linspace(0, 1, num)
             t_ = 1 - t
@@ -303,8 +310,8 @@ class ChromosomeIdeogram:
             y = t_ ** 3 * P0[1] + 3 * t_ ** 2 * t * P1[1] + 3 * t_ * t ** 2 * P2[1] + t ** 3 * P3[1]
             return np.column_stack((x, y))
 
+        legend_handles = []
         legend_added = set()
-        proxy_x = max([i[0] for i in self.karyotype.values()]) * 10000
 
         for chr1, start1, end1, chr2, start2, end2, label, color in records:
             if chr1 not in self.chr_coordinate or chr2 not in self.chr_coordinate:
@@ -348,13 +355,13 @@ class ChromosomeIdeogram:
             if label not in legend_added:
                 legend_added.add(label)
                 proxy = matplotlib.patches.Rectangle(
-                    xy=(proxy_x, 0),
+                    (0, 0),
                     width=1,
                     height=1,
                     facecolor=color,
                     edgecolor='none',
                     label=label
                 )
-                axes.add_patch(proxy)
-
+                legend_handles.append(proxy)
+        self.handles.extend(legend_handles)
         return axes
