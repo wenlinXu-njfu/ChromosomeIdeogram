@@ -1,4 +1,4 @@
-from typing import Union, Dict, List
+from typing import Union, Dict, List, Optional
 from collections import defaultdict
 from os import makedirs, getcwd
 from os.path import basename
@@ -6,18 +6,41 @@ import numpy as np
 import matplotlib
 from matplotlib.path import Path
 from matplotlib.patches import PathPatch
+from matplotlib.markers import MarkerStyle
 from matplotlib.collections import PatchCollection
 from click import echo
 
 
+def __data_preprocessing(
+    reversed_chr: dict,
+    bed_file: str,
+    sample_name: Optional[str],
+    out_path: str
+) -> None:
+    with open(bed_file) as f, open(f'{out_path}/{basename(bed_file)}.processed', 'w') as o:
+        for line in f:
+            if not line.startswith('#') and line.strip():
+                split = line.strip().split('\t')
+                chr_name, start, end = split[0], int(split[1]), int(split[2])
+                try:
+                    split[1] = str(reversed_chr[chr_name] - end)
+                    split[2] = str(reversed_chr[chr_name] - start)
+                except KeyError:
+                    pass
+                if sample_name is not None:
+                    split[0] = f'{sample_name}_{split[0]}'
+                echo('\t'.join(split), o)
+
+
 def data_preprocessing(
     karyotype: str,
-    annotation: Union[str, None] = None,
-    synteny: Union[str, None] = None,
-    sample_name: Union[str, None] = None,
-    exclude_chr: Union[str, List[str], None] = None,
-    force_revers_chr: Union[str, List[str], None] = None,
-    out_path: Union[str, None] = None,
+    annotation: Optional[str] = None,
+    synteny: Optional[str] = None,
+    mark_file: Optional[str] = None,
+    sample_name: Optional[str] = None,
+    exclude_chr: Optional[Union[str, List[str]]] = None,
+    force_revers_chr: Optional[Union[str, List[str]]] = None,
+    out_path: Optional[str] = None,
 ) -> None:
     if exclude_chr is None:
         exclude_chr = []
@@ -27,7 +50,7 @@ def data_preprocessing(
         out_path = getcwd()
     makedirs(out_path, exist_ok=True)
 
-    d = {}
+    reversed_chr = {}
     with open(karyotype) as f, open(f'{out_path}/{basename(karyotype)}.processed', 'w') as o:
         for line in f:
             if not line.startswith('#') and line.strip():
@@ -36,30 +59,31 @@ def data_preprocessing(
                 if chr_len - cent_end > cent_start and chr_name not in exclude_chr:  # short arm towards the right
                     split[2] = str(chr_len - cent_end)
                     split[3] = str(chr_len - cent_start)
-                    d[split[0]] = chr_len
+                    reversed_chr[split[0]] = chr_len
                 elif chr_name in force_revers_chr:
                     split[2] = str(chr_len - cent_end)
                     split[3] = str(chr_len - cent_start)
-                    d[split[0]] = chr_len
+                    reversed_chr[split[0]] = chr_len
                 if sample_name is not None:
                     split[0] = f'{sample_name}_{chr_name}'
                 echo('\t'.join(split), o)
-    echo(f'Reversed chromosome: {" ".join(d.keys())}', err=True)
+    echo(f'Reversed chromosome: {" ".join(reversed_chr.keys())}', err=True)
 
     if annotation is not None:
-        with open(annotation) as f, open(f'{out_path}/{basename(annotation)}.processed', 'w') as o:
-            for line in f:
-                if not line.startswith('#') and line.strip():
-                    split = line.strip().split('\t')
-                    chr_name, start, end = split[0], int(split[1]), int(split[2])
-                    try:
-                        split[1] = str(d[chr_name] - end)
-                        split[2] = str(d[chr_name] - start)
-                    except KeyError:
-                        pass
-                    if sample_name is not None:
-                        split[0] = f'{sample_name}_{split[0]}'
-                    echo('\t'.join(split), o)
+        __data_preprocessing(
+            reversed_chr=reversed_chr,
+            bed_file=annotation,
+            sample_name=sample_name,
+            out_path=out_path
+        )
+
+    if mark_file is not None:
+        __data_preprocessing(
+            reversed_chr=reversed_chr,
+            bed_file=mark_file,
+            sample_name=sample_name,
+            out_path=out_path
+        )
 
     if synteny is not None:
         with open(synteny) as f, open(f'{out_path}/{basename(synteny)}.processed', 'w') as o:
@@ -69,13 +93,13 @@ def data_preprocessing(
                     chr1, start1, end1 = split[0], int(split[1]), int(split[2])
                     chr2, start2, end2 = split[3], int(split[4]), int(split[5])
                 try:
-                    split[1] = str(d[chr1] - end1)
-                    split[2] = str(d[chr1] - start1)
+                    split[1] = str(reversed_chr[chr1] - end1)
+                    split[2] = str(reversed_chr[chr1] - start1)
                 except KeyError:
                     pass
                 try:
-                    split[4] = str(d[chr2] - end2)
-                    split[5] = str(d[chr2] - start2)
+                    split[4] = str(reversed_chr[chr2] - end2)
+                    split[5] = str(reversed_chr[chr2] - start2)
                 except KeyError:
                     pass
                 if sample_name is not None:
@@ -88,7 +112,7 @@ class ChromosomeIdeogram:
     def __init__(
         self,
         karyotype: Union[str, Dict[str, List[int]]],
-        radius=0.4,
+        radius: Optional[Union[int, float]]=0.4,
         space: int = 4
     ):
         if isinstance(karyotype, dict):
@@ -130,8 +154,8 @@ class ChromosomeIdeogram:
         chromosome_len: int,
         centromere_start: int,
         centromere_end: int,
-        y_center: Union[int, float] = 0,
-        centromere_angle: Union[int, float] = 60
+        y_center: Optional[Union[int, float]] = 0,
+        centromere_angle: Optional[Union[int, float]] = 60.0
     ) -> tuple:
         angle_rad = np.radians(centromere_angle)
         slope = np.tan(angle_rad)
@@ -180,10 +204,10 @@ class ChromosomeIdeogram:
     def draw_chromh(
         self,
         axes: matplotlib.axes.Axes,
-        centromere_angle: Union[int, float] = 60.0,
-        facecolor: str = 'lightgrey',
-        edgecolor: str = None,
-        linewidth: float = 1.0
+        centromere_angle: Optional[Union[int, float]] = 60.0,
+        facecolor: Optional[str] = 'lightgrey',
+        edgecolor: Optional[str] = None,
+        linewidth: Optional[Union[int, float]] = 1.0
     ) -> matplotlib.axes.Axes:
         for chr_name, l in self.karyotype.items():
             chromosome_len, centromere_start, centromere_end = l
@@ -211,7 +235,7 @@ class ChromosomeIdeogram:
         self,
         axes: matplotlib.axes.Axes,
         annotations: str,
-        height: Union[int, float, None] = None
+        height: Optional[Union[int, float]] = None
     ) -> matplotlib.axes.Axes:
         if height is None:
             height = self.radius * 1.5
@@ -226,6 +250,8 @@ class ChromosomeIdeogram:
                 if len(split) < 5:
                     continue
                 chr_name, start, end, feature_type, color = split
+                if chr_name not in self.chr_coordinate:
+                    continue
                 start = int(start) / self.scale
                 end = int(end) / self.scale
                 width = end - start
@@ -278,9 +304,9 @@ class ChromosomeIdeogram:
         self,
         axes: matplotlib.axes.Axes,
         synteny_file: str,
-        bezier_scale: float = 0.5,
-        alpha: float = 0.6,
-        linewidth: Union[int, float] = 0
+        bezier_scale: Optional[Union[int, float]] = 0.5,
+        alpha: Optional[Union[int, float]] = 0.6,
+        linewidth: Optional[Union[int, float]] = 0
     ) -> matplotlib.axes.Axes:
         # Load data
         records = []
@@ -364,4 +390,114 @@ class ChromosomeIdeogram:
                 )
                 legend_handles.append(proxy)
         self.handles.extend(legend_handles)
+        return axes
+
+    def mark_loci(
+        self,
+        axes: matplotlib.axes.Axes,
+        markers: str,
+        pos: Optional[str] = 'top',
+        size: Optional[Union[int, float]] = None
+    ) -> matplotlib.axes.Axes:
+        MARKER_SHAPES = {
+            'triangle': '^',
+            'circle': 'o',
+            'square': 's',
+            'diamond': 'D',
+            'star': '*',
+            'pentagon': 'p',
+            'hexagon': 'h',
+            'octagon': '8',
+            'plus': '+',
+            'cross': 'x',
+            'x': 'x',
+            'triangle_down': 'v',
+            'triangle_left': '<',
+            'triangle_right': '>',
+            'thin_diamond': 'd',
+            'pentagram': '*',
+        }
+
+        if pos not in ('top', 'bottom'):
+            raise ValueError(f"Invalid pos: {pos!r}, expected 'top' or 'bottom'")
+        if size is None:
+            size = self.radius * 0.5
+
+        legend_handles = []
+        legend_added = set()
+        lowest = float('inf')
+        highest = float('-inf')
+        with open(markers) as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+                parts = line.split('\t')
+                if len(parts) < 6:
+                    parts = line.split(',')
+                if len(parts) < 6:
+                    continue
+                chr_name, start, end, name, color, shape = [p.strip() for p in parts[:6]]
+                if chr_name not in self.chr_coordinate:
+                    continue
+                position = (int(start) + int(end)) / 2 / self.scale
+
+                try:
+                    marker_style = MarkerStyle(MARKER_SHAPES.get(shape, shape))
+                    marker_path = marker_style.get_path().transformed(marker_style.get_transform())
+                except ValueError:
+                    raise ValueError(f"Invalid shape: {shape!r}")
+
+                raw_vertices = marker_path.vertices
+                center = (raw_vertices.min(axis=0) + raw_vertices.max(axis=0)) / 2
+                extent = raw_vertices.max(axis=0) - raw_vertices.min(axis=0)
+                scale_factor = size / extent.max()
+
+                y_center = self.chr_coordinate[chr_name]
+                if pos == 'top':
+                    y_edge = y_center + self.radius
+                    y = y_edge + size / 2
+                    highest = max(highest, y_edge + size)
+                else:
+                    y_edge = y_center - self.radius
+                    y = y_edge - size / 2
+                    lowest = min(lowest, y_edge - size)
+
+                axes.plot(
+                    (position, position),
+                    (y_edge, y),
+                    color='#4d4d4d',
+                    linewidth=1,
+                    alpha=0.8
+                )
+
+                verts = (raw_vertices - center) * scale_factor + np.array([position, y])
+                patch = matplotlib.patches.PathPatch(
+                    matplotlib.path.Path(verts, marker_path.codes),
+                    facecolor=color,
+                    edgecolor='none',
+                    zorder=3
+                )
+                axes.add_patch(patch)
+
+                key = (name, color, MARKER_SHAPES.get(shape, shape))
+                if key not in legend_added:
+                    legend_added.add(key)
+                    proxy = matplotlib.lines.Line2D(
+                        [], [],
+                        marker=MARKER_SHAPES.get(shape, shape),
+                        linestyle='None',
+                        markerfacecolor=color,
+                        markeredgecolor=color,
+                        markersize=12,
+                        label=name
+                    )
+                    legend_handles.append(proxy)
+
+        if lowest < float('inf') or highest > float('-inf'):
+            ymin, ymax = axes.get_ylim()
+            axes.set_ylim(min(ymin, lowest), max(ymax, highest))
+
+        self.handles.extend(legend_handles)
+
         return axes
