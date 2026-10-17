@@ -4,6 +4,7 @@ from os import makedirs, getcwd
 from os.path import basename
 import numpy as np
 import matplotlib
+import matplotlib.ticker
 from matplotlib.path import Path
 from matplotlib.patches import PathPatch
 from matplotlib.markers import MarkerStyle
@@ -112,7 +113,7 @@ class ChromosomeIdeogram:
     def __init__(
         self,
         karyotype: Union[str, Dict[str, List[int]]],
-        radius: Optional[Union[int, float]]=0.4,
+        radius: Optional[Union[int, float]] = 0.4,
         space: int = 4
     ):
         if isinstance(karyotype, dict):
@@ -122,9 +123,13 @@ class ChromosomeIdeogram:
             with open(karyotype) as f:
                 for line in f:
                     split = line.strip().split('\t')
-                    chr_name, chr_len, cent_start, cent_end = split
+                    if len(split) < 4:
+                        continue
+                    chr_name, chr_len, cent_start, cent_end = split[0], split[1], split[2], split[3]
                     chr_len, cent_start, cent_end = int(chr_len), int(cent_start), int(cent_end)
                     raw_karyotype[chr_name] = [chr_len, cent_start, cent_end]
+        if not raw_karyotype:
+            raise ValueError('karyotype is empty')
         longest_chr = max([i[0] for i in raw_karyotype.values()])
         if longest_chr / 10 ** 3 < 1000:
             scale = 10 ** 3
@@ -141,19 +146,23 @@ class ChromosomeIdeogram:
         coordinate = [radius * (space * n - 2) for n in range(1, len(scaled_karyotype) + 1)]
         chr_coordinate = {j: i + radius for i, j in zip(coordinate, scaled_karyotype.keys())}
 
-        self.karyotype = scaled_karyotype
+        self.karyotype = scaled_karyotype  # {chr: [length_scaled, cent_start_scaled, cent_end_scaled]}
+        self.raw_karyotype = raw_karyotype  # {chr: [length, cent_start, cent_end]}
         self.scale = scale
         self.length_unit = length_unit
-        self.chr_coordinate = chr_coordinate
+        self.chr_coordinate = chr_coordinate  # horizontal layout: y centers
+        self.chr_ycoordinate = None  # vertical layout: x centers
         self.chromosome_patches = {}
         self.radius = radius
         self.handles = []
+        self.orientation = 'horizontal'  # 'horizontal' or 'vertical'
+        self.space = space
 
     def __chromosome_shape(
         self,
-        chromosome_len: int,
-        centromere_start: int,
-        centromere_end: int,
+        chromosome_len: Union[int, float],
+        centromere_start: Union[int, float],
+        centromere_end: Union[int, float],
         y_center: Optional[Union[int, float]] = 0,
         centromere_angle: Optional[Union[int, float]] = 60.0
     ) -> tuple:
@@ -201,14 +210,68 @@ class ChromosomeIdeogram:
         codes = [Path.MOVETO] + [Path.LINETO] * (len(vertices) - 2) + [Path.CLOSEPOLY]
         return np.array(vertices), codes
 
+    def __chromosome_shape_v(
+        self,
+        chromosome_len: Union[int, float],
+        centromere_start: Union[int, float],
+        centromere_end: Union[int, float],
+        x_center: Optional[Union[int, float]] = 0,
+        centromere_angle: Optional[Union[int, float]] = 60.0
+    ) -> tuple:
+        angle_rad = np.radians(centromere_angle)
+        slope = np.tan(angle_rad)
+        r = self.radius
+
+        bottom_line_y = r
+        top_line_y = chromosome_len - r
+
+        mid_y = (centromere_start + centromere_end) / 2.0
+        dy = mid_y - centromere_start
+        h_right = max(r - dy * slope, 0.0)
+        h_left = -h_right
+
+        theta_top = np.linspace(0, np.pi, 30)
+        top_arc_x = x_center + r * np.cos(theta_top)
+        top_arc_y = top_line_y + r * np.sin(theta_top)
+
+        theta_bottom = np.linspace(np.pi, 2 * np.pi, 30)
+        bottom_arc_x = x_center + r * np.cos(theta_bottom)
+        bottom_arc_y = bottom_line_y + r * np.sin(theta_bottom)
+
+        vertices = []
+        vertices.append((x_center + r, bottom_line_y))
+        vertices.append((x_center + r, centromere_start))
+        vertices.append((x_center + h_right, mid_y))
+        vertices.append((x_center + r, centromere_end))
+        vertices.append((x_center + r, top_line_y))
+
+        for x, y in zip(top_arc_x, top_arc_y):
+            vertices.append((x, y))
+
+        vertices.append((x_center - r, top_line_y))
+        vertices.append((x_center - r, centromere_end))
+        vertices.append((x_center + h_left, mid_y))
+        vertices.append((x_center - r, centromere_start))
+        vertices.append((x_center - r, bottom_line_y))
+
+        for x, y in zip(bottom_arc_x, bottom_arc_y):
+            vertices.append((x, y))
+
+        vertices.append(vertices[0])
+
+        codes = [Path.MOVETO] + [Path.LINETO] * (len(vertices) - 2) + [Path.CLOSEPOLY]
+        return np.array(vertices), codes
+
     def draw_chromh(
         self,
-        axes: matplotlib.axes.Axes,
+        axes,
         centromere_angle: Optional[Union[int, float]] = 60.0,
         facecolor: Optional[str] = 'lightgrey',
         edgecolor: Optional[str] = None,
         linewidth: Optional[Union[int, float]] = 1.0
-    ) -> matplotlib.axes.Axes:
+    ):
+        self.orientation = 'horizontal'
+        self.chr_ycoordinate = None
         for chr_name, l in self.karyotype.items():
             chromosome_len, centromere_start, centromere_end = l
             verts, codes = self.__chromosome_shape(
@@ -231,12 +294,61 @@ class ChromosomeIdeogram:
         axes.spines['left'].set_color(None)
         return axes
 
+    def draw_chrom(
+        self,
+        axes,
+        centromere_angle: Optional[Union[int, float]] = 60.0,
+        facecolor: Optional[str] = 'lightgrey',
+        edgecolor: Optional[str] = None,
+        linewidth: Optional[Union[int, float]] = 1.0
+    ):
+        # Vertical chromosome ideogram with a bp-scale y axis (first base = 1)
+        self.orientation = 'vertical'
+        r = self.radius
+        space = self.space
+        chr_list = list(self.karyotype.keys())
+        coordinate_x = [r * (space * n - 2) for n in range(1, len(chr_list) + 1)]
+        chr_xcoord = {j: i + r for i, j in zip(coordinate_x, chr_list)}
+        self.chr_ycoordinate = chr_xcoord
+
+        max_len = max([i[0] for i in self.karyotype.values()])
+        for chr_name, l in self.karyotype.items():
+            chromosome_len, centromere_start, centromere_end = l
+            verts, codes = self.__chromosome_shape_v(
+                chromosome_len=chromosome_len,
+                centromere_start=centromere_start,
+                centromere_end=centromere_end,
+                x_center=chr_xcoord[chr_name],
+                centromere_angle=centromere_angle
+            )
+            patch = PathPatch(Path(verts, codes), facecolor=facecolor, edgecolor=edgecolor, linewidth=linewidth)
+            axes.add_patch(patch)
+            self.chromosome_patches[chr_name] = patch
+
+        # Left y-axis: chromosome length scale in bp, first base = 1
+        raw_max = max(v[0] for v in self.raw_karyotype.values())
+        tick_vals = matplotlib.ticker.MaxNLocator(nbins=6, steps=[1, 2, 2.5, 5, 10]).tick_values(1, raw_max)
+        tick_vals = [t for t in tick_vals if 1 <= t <= raw_max]
+        if not tick_vals or tick_vals[0] != 1:
+            tick_vals = [1] + [t for t in tick_vals if t > 1]
+
+        axes.set_yticks([t / self.scale for t in tick_vals])
+        axes.set_ylabel('chromosome length (Mb)')
+        axes.set_xticks(list(chr_xcoord.values()), chr_xcoord.keys(), rotation=90)
+        axes.set_ylim(-max_len * 0.01, max_len * 1.01)
+        axes.set_xlim(0, max(chr_xcoord.values()) + 2 * r)
+        axes.tick_params(axis='x', length=0)
+        axes.spines['top'].set_color(None)
+        axes.spines['right'].set_color(None)
+        axes.spines['bottom'].set_color(None)
+        return axes
+
     def annotations(
         self,
-        axes: matplotlib.axes.Axes,
+        axes,
         annotations: str,
         height: Optional[Union[int, float]] = None
-    ) -> matplotlib.axes.Axes:
+    ):
         if height is None:
             height = self.radius * 1.5
 
@@ -249,22 +361,36 @@ class ChromosomeIdeogram:
                 split = line.strip().split('\t')
                 if len(split) < 5:
                     continue
-                chr_name, start, end, feature_type, color = split
-                if chr_name not in self.chr_coordinate:
-                    continue
+                chr_name, start, end, feature_type, color = split[0], split[1], split[2], split[3], split[4]
+                if self.orientation == 'horizontal':
+                    if chr_name not in self.chr_coordinate:
+                        continue
+                else:
+                    if self.chr_ycoordinate is None or chr_name not in self.chr_ycoordinate:
+                        continue
                 start = int(start) / self.scale
                 end = int(end) / self.scale
                 width = end - start
-                y_center = self.chr_coordinate[chr_name]
-                y_bottom = y_center - height / 2
-
-                groups[(chr_name, feature_type)].append({
-                    'x': start,
-                    'y': y_bottom,
-                    'width': width,
-                    'height': height,
-                    'color': color
-                })
+                if self.orientation == 'horizontal':
+                    y_center = self.chr_coordinate[chr_name]
+                    y_bottom = y_center - height / 2
+                    groups[(chr_name, feature_type)].append({
+                        'x': start,
+                        'y': y_bottom,
+                        'width': width,
+                        'height': height,
+                        'color': color
+                    })
+                else:
+                    x_center = self.chr_ycoordinate[chr_name]
+                    x_left = x_center - height / 2
+                    groups[(chr_name, feature_type)].append({
+                        'x': x_left,
+                        'y': start,
+                        'width': height,
+                        'height': width,
+                        'color': color
+                    })
                 if feature_type not in feature_color:
                     feature_color[feature_type] = color
 
@@ -302,12 +428,12 @@ class ChromosomeIdeogram:
 
     def draw_synteny(
         self,
-        axes: matplotlib.axes.Axes,
+        axes,
         synteny_file: str,
         bezier_scale: Optional[Union[int, float]] = 0.5,
         alpha: Optional[Union[int, float]] = 0.6,
         linewidth: Optional[Union[int, float]] = 0
-    ) -> matplotlib.axes.Axes:
+    ):
         # Load data
         records = []
         with open(synteny_file) as f:
@@ -320,9 +446,9 @@ class ChromosomeIdeogram:
                     parts = line.split(',')
                 if len(parts) < 8:
                     continue
-                chr1, s1, e1, chr2, s2, e2, label, color = parts[:8]
+                chr1, s1, e1, chr2, s2, e2, label, color = parts[0], parts[1], parts[2], parts[3], parts[4], parts[5], parts[6], parts[7]
                 try:
-                    s1, e1 = int(s1), int(e1)  # 修正：原为 int(s1), int(s1)
+                    s1, e1 = int(s1), int(e1)
                     s2, e2 = int(s2), int(e2)
                 except ValueError:
                     continue
@@ -338,29 +464,44 @@ class ChromosomeIdeogram:
 
         legend_handles = []
         legend_added = set()
+        r = self.radius
+        horizontal = self.orientation == 'horizontal'
 
         for chr1, start1, end1, chr2, start2, end2, label, color in records:
-            if chr1 not in self.chr_coordinate or chr2 not in self.chr_coordinate:
-                continue
-
-            x1s, x1e = start1 / self.scale, end1 / self.scale
-            x2s, x2e = start2 / self.scale, end2 / self.scale
-            y1 = self.chr_coordinate[chr1]
-            y2 = self.chr_coordinate[chr2]
-
-            if y1 > y2:
-                y1_edge, y2_edge = y1 - self.radius, y2 + self.radius
+            if horizontal:
+                if chr1 not in self.chr_coordinate or chr2 not in self.chr_coordinate:
+                    continue
+                c1, c2 = self.chr_coordinate[chr1], self.chr_coordinate[chr2]
+                s1, e1 = start1 / self.scale, end1 / self.scale
+                s2, e2 = start2 / self.scale, end2 / self.scale
             else:
-                y1_edge, y2_edge = y1 + self.radius, y2 - self.radius
+                if self.chr_ycoordinate is None or chr1 not in self.chr_ycoordinate or chr2 not in self.chr_ycoordinate:
+                    continue
+                c1, c2 = self.chr_ycoordinate[chr1], self.chr_ycoordinate[chr2]
+                s1, e1 = start1 / self.scale, end1 / self.scale
+                s2, e2 = start2 / self.scale, end2 / self.scale
 
-            dy = (y2_edge - y1_edge) * bezier_scale
-            A = np.array([x1s, y1_edge])
-            B = np.array([x1e, y1_edge])
-            C = np.array([x2e, y2_edge])
-            D = np.array([x2s, y2_edge])
+            if c1 > c2:
+                edge1, edge2 = c1 - r, c2 + r
+            else:
+                edge1, edge2 = c1 + r, c2 - r
 
-            ctrl_A, ctrl_B = A + [0, dy], B + [0, dy]
-            ctrl_D, ctrl_C = D - [0, dy], C - [0, dy]
+            # horizontal: segments run along x, connect on y edges; vertical: rotated
+            if horizontal:
+                A = np.array([s1, edge1])
+                B = np.array([e1, edge1])
+                C = np.array([e2, edge2])
+                D = np.array([s2, edge2])
+                offset = np.array([0.0, (edge2 - edge1) * bezier_scale])
+            else:
+                A = np.array([edge1, s1])
+                B = np.array([edge1, e1])
+                C = np.array([edge2, e2])
+                D = np.array([edge2, s2])
+                offset = np.array([(edge2 - edge1) * bezier_scale, 0.0])
+
+            ctrl_A, ctrl_B = A + offset, B + offset
+            ctrl_D, ctrl_C = D - offset, C - offset
 
             curve_AD = _bezier_curve(A, ctrl_A, ctrl_D, D)
             curve_BC = _bezier_curve(B, ctrl_B, ctrl_C, C)
@@ -381,24 +522,18 @@ class ChromosomeIdeogram:
             if label not in legend_added:
                 legend_added.add(label)
                 proxy = matplotlib.patches.Rectangle(
-                    (0, 0),
-                    width=1,
-                    height=1,
-                    facecolor=color,
-                    edgecolor='none',
-                    label=label
-                )
+                    (0, 0), width=1, height=1, facecolor=color, edgecolor='none', label=label)
                 legend_handles.append(proxy)
         self.handles.extend(legend_handles)
         return axes
 
     def mark_loci(
         self,
-        axes: matplotlib.axes.Axes,
+        axes,
         markers: str,
         pos: Optional[str] = 'top',
         size: Optional[Union[int, float]] = None
-    ) -> matplotlib.axes.Axes:
+    ):
         MARKER_SHAPES = {
             'triangle': '^',
             'circle': 'o',
@@ -418,8 +553,14 @@ class ChromosomeIdeogram:
             'pentagram': '*',
         }
 
-        if pos not in ('top', 'bottom'):
-            raise ValueError(f"Invalid pos: {pos!r}, expected 'top' or 'bottom'")
+        valid_pos_h = ('top', 'bottom')
+        valid_pos_v = ('left', 'right')
+        if self.orientation == 'horizontal':
+            if pos not in valid_pos_h:
+                raise ValueError(f"Invalid pos: {pos!r}, expected 'top' or 'bottom'")
+        else:
+            if pos not in valid_pos_v:
+                raise ValueError(f"Invalid pos: {pos!r}, expected 'left' or 'right'")
         if size is None:
             size = self.radius * 0.5
 
@@ -427,6 +568,8 @@ class ChromosomeIdeogram:
         legend_added = set()
         lowest = float('inf')
         highest = float('-inf')
+        leftmost = float('inf')
+        rightmost = float('-inf')
         with open(markers) as f:
             for line in f:
                 line = line.strip()
@@ -438,8 +581,12 @@ class ChromosomeIdeogram:
                 if len(parts) < 6:
                     continue
                 chr_name, start, end, name, color, shape = [p.strip() for p in parts[:6]]
-                if chr_name not in self.chr_coordinate:
-                    continue
+                if self.orientation == 'horizontal':
+                    if chr_name not in self.chr_coordinate:
+                        continue
+                else:
+                    if self.chr_ycoordinate is None or chr_name not in self.chr_ycoordinate:
+                        continue
                 position = (int(start) + int(end)) / 2 / self.scale
 
                 try:
@@ -453,25 +600,42 @@ class ChromosomeIdeogram:
                 extent = raw_vertices.max(axis=0) - raw_vertices.min(axis=0)
                 scale_factor = size / extent.max()
 
-                y_center = self.chr_coordinate[chr_name]
-                if pos == 'top':
-                    y_edge = y_center + self.radius
-                    y = y_edge + size / 2
-                    highest = max(highest, y_edge + size)
+                if self.orientation == 'horizontal':
+                    y_center = self.chr_coordinate[chr_name]
+                    if pos == 'top':
+                        y_edge = y_center + self.radius
+                        y = y_edge + size / 2
+                        highest = max(highest, y_edge + size)
+                    else:
+                        y_edge = y_center - self.radius
+                        y = y_edge - size / 2
+                        lowest = min(lowest, y_edge - size)
+                    axes.plot(
+                        (position, position),
+                        (y_edge, y),
+                        color='#4d4d4d',
+                        linewidth=1,
+                        alpha=0.8
+                    )
+                    verts = (raw_vertices - center) * scale_factor + np.array([position, y])
                 else:
-                    y_edge = y_center - self.radius
-                    y = y_edge - size / 2
-                    lowest = min(lowest, y_edge - size)
-
-                axes.plot(
-                    (position, position),
-                    (y_edge, y),
-                    color='#4d4d4d',
-                    linewidth=1,
-                    alpha=0.8
-                )
-
-                verts = (raw_vertices - center) * scale_factor + np.array([position, y])
+                    x_center = self.chr_ycoordinate[chr_name]
+                    if pos == 'left':
+                        x_edge = x_center - self.radius
+                        x = x_edge - size / 2
+                        leftmost = min(leftmost, x_edge - size)
+                    else:
+                        x_edge = x_center + self.radius
+                        x = x_edge + size / 2
+                        rightmost = max(rightmost, x_edge + size)
+                    axes.plot(
+                        (x_edge, x),
+                        (position, position),
+                        color='#4d4d4d',
+                        linewidth=1,
+                        alpha=0.8
+                    )
+                    verts = (raw_vertices - center) * scale_factor + np.array([x, position])
                 patch = matplotlib.patches.PathPatch(
                     matplotlib.path.Path(verts, marker_path.codes),
                     facecolor=color,
@@ -494,9 +658,14 @@ class ChromosomeIdeogram:
                     )
                     legend_handles.append(proxy)
 
-        if lowest < float('inf') or highest > float('-inf'):
-            ymin, ymax = axes.get_ylim()
-            axes.set_ylim(min(ymin, lowest), max(ymax, highest))
+        if self.orientation == 'horizontal':
+            if lowest < float('inf') or highest > float('-inf'):
+                ymin, ymax = axes.get_ylim()
+                axes.set_ylim(min(ymin, lowest), max(ymax, highest))
+        else:
+            if leftmost < float('inf') or rightmost > float('-inf'):
+                xmin, xmax = axes.get_xlim()
+                axes.set_xlim(min(xmin, leftmost), max(xmax, rightmost))
 
         self.handles.extend(legend_handles)
 
