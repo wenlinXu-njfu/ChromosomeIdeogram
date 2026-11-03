@@ -1,7 +1,8 @@
 [![PyPI - Version](https://img.shields.io/pypi/v/chromosome-ideogram)](https://pypi.org/project/chromosome-ideogram)
+<img src="https://github.com/wenlinXu-njfu/ChromosomeIdeogram/blob/main/image.png" align="right" width="30%">
 
 # ChromosomeIdeogram
-A python package for drawing genome-wide data on ideograms.
+The magical companion of the chromosome map.
 
 ## Install
 ```shell
@@ -42,6 +43,39 @@ plt.savefig('example/vertical_chromosome.png', bbox_inches='tight')
 ```
 ![image](https://github.com/wenlinXu-njfu/ChromosomeIdeogram/blob/main/example/vertical_chromosome.png)
 
+**show reads tracks**
+```python
+import matplotlib.pyplot as plt
+from chromosome_ideogram import ChromosomeIdeogram
+
+plt.rcParams['font.size'] = 12
+plt.rcParams['pdf.fonttype'] = 42
+
+fig = plt.figure(figsize=(12, 8))
+axes = fig.add_subplot(111)
+
+ci = ChromosomeIdeogram(
+    karyotype='example/karyotype.xls',
+    radius=0.4,  # Radius of chromosome
+    space=5  # Chromosome center coordinate interval (radius x space)
+)
+ci.draw_chrom(axes=axes, centromere_angle=60, facecolor='white', edgecolor='black', linewidth=1.0)
+ci.annotations(axes=axes, annotations='example/satellite_DNA.bed', height=None)
+
+# show HiFi reads pile up
+ci.show_tracks(axes=axes, bigwig='example/hapA_HiFi.bw', sample_name='Pla', pos='left', bin_size=10000, max=110, color='steelblue', label='HiFi reads mapped hapA')
+ci.show_tracks(axes=axes, bigwig='example/hapB_HiFi.bw', sample_name='Pla', pos='right', bin_size=10000, max=110, color='steelblue', label='HiFi reads mapped hapB')
+
+# show chromosome 14 synteny
+ci.draw_synteny(axes=axes, synteny_file='example/Chr14_SV.bed')
+
+axes.legend(handles=ci.handles, loc=(0.5, 0.8), ncol=2)
+
+plt.savefig('example/vertical_chromosome_with_tracks.pdf', bbox_inches='tight')
+plt.savefig('example/vertical_chromosome_with_tracks.png', bbox_inches='tight')
+```
+![image](https://github.com/wenlinXu-njfu/ChromosomeIdeogram/blob/main/example/vertical_chromosome_with_tracks.png)
+
 ### Draw the horizontal chromosome ideograms
 ```python
 import matplotlib.pyplot as plt
@@ -63,9 +97,10 @@ ci1 = ChromosomeIdeogram(
 )
 ci1.draw_chromh(axes=axes1, centromere_angle=60, facecolor='lightgrey', edgecolor=None, linewidth=0)
 ci1.annotations(axes=axes1, annotations='example/satellite_DNA.bed', height=None)
+
 # show rDNA
 ci1.mark_loci(axes=axes1, markers='example/hapA_rDNA_bottom.bed', pos='bottom', size=None)  # Draw the rDNA beneath haplotype A chromosomes
-ci1.mark_loci(axes=axes1, markers='example/hapB_rDNA._topbed', pos='top', size=None)  # Draw the rDNA above haplotype B chromosomes
+ci1.mark_loci(axes=axes1, markers='example/hapB_rDNA_top.bed', pos='top', size=None)  # Draw the rDNA above haplotype B chromosomes
 
 # Create a second karyotype ideogram object (containing only chromosome 14)
 ci2 = ChromosomeIdeogram(

@@ -9,6 +9,9 @@ from matplotlib.path import Path
 from matplotlib.patches import PathPatch
 from matplotlib.markers import MarkerStyle
 from matplotlib.collections import PatchCollection
+from matplotlib.transforms import Affine2D
+import builtins
+import pyBigWig
 from click import echo
 
 
@@ -668,5 +671,269 @@ class ChromosomeIdeogram:
                 axes.set_xlim(min(xmin, leftmost), max(xmax, rightmost))
 
         self.handles.extend(legend_handles)
+
+        return axes
+
+    def show_tracks(
+        self,
+        axes,
+        bigwig: str,
+        scale: Optional[str] = 'auto',
+        max: Optional[Union[int, float]] = None,
+        pos: Optional[str] = None,
+        height: Optional[Union[int, float]] = None,
+        color: Optional[str] = 'steelblue',
+        bin_size: Optional[int] = 10000,
+        reversed_chr: Optional[Dict[str, int]] = None,
+        sample_name: Optional[str] = None,
+        label: Optional[str] = None,
+        alpha: Optional[Union[int, float]] = 0.6,
+        linewidth: Optional[Union[int, float]] = 0.8,
+        smooth: Optional[bool] = True,
+        zorder: Optional[Union[int, float]] = 2
+    ):
+        if height is None:
+            height = self.radius * 3 / 4
+        if height <= 0:
+            raise ValueError(f'Invalid height: {height!r}, expected a positive number')
+        if bin_size is None:
+            bin_size = 10000
+        if bin_size <= 0:
+            raise ValueError(f'Invalid bin_size: {bin_size!r}, expected a positive integer')
+        if reversed_chr is None:
+            reversed_chr = {}
+        if color is None:
+            color = 'steelblue'
+        if label is None:
+            label = sample_name if sample_name is not None else basename(bigwig)
+        if max is not None:
+            if max <= 0 or not np.isfinite(max):
+                raise ValueError(f'Invalid max: {max!r}, expected a positive number')
+            depth_max = float(max)
+        else:
+            depth_max = None
+            if scale is None:
+                scale = 'linear'
+            if scale not in ('linear', 'sqrt', 'log', 'auto'):
+                raise ValueError(
+                    f"Invalid scale: {scale!r}, expected 'linear', 'sqrt', 'log' or 'auto'"
+                )
+
+        horizontal = self.orientation == 'horizontal'
+        if pos is None:
+            pos = 'top' if horizontal else 'right'
+        if horizontal:
+            if pos not in ('top', 'bottom'):
+                raise ValueError(f"Invalid pos: {pos!r}, expected 'top' or 'bottom'")
+        else:
+            if pos not in ('left', 'right'):
+                raise ValueError(f"Invalid pos: {pos!r}, expected 'left' or 'right'")
+            if self.chr_ycoordinate is None:
+                raise ValueError('draw_chrom must be called before show_tracks for vertical chromosomes')
+
+        bw = pyBigWig.open(bigwig)
+        if bw is None:
+            raise ValueError(f'Unable to open bigwig file: {bigwig!r}')
+        try:
+            bw_chroms = bw.chroms()
+            profiles = {}
+            reversed_names = set()
+            bw_names = {}
+            for chr_name in self.karyotype:
+                chr_len = self.raw_karyotype[chr_name][0]
+                candidates = []
+                if sample_name is not None:
+                    prefix = f'{sample_name}_'
+                    if chr_name.startswith(prefix):
+                        candidates.append(chr_name[len(prefix):])
+                    candidates.append(chr_name)
+                    candidates.append(f'{sample_name}_{chr_name}')
+                else:
+                    candidates.append(chr_name)
+                bw_name = next((name for name in candidates if name in bw_chroms), None)
+                if bw_name is None:
+                    continue
+                bw_names[chr_name] = bw_name
+
+                n_bins = builtins.max(1, int(np.ceil(chr_len / bin_size)))
+                region_len = min(chr_len, int(bw_chroms[bw_name]))
+                n_data = builtins.max(1, min(n_bins, int(np.ceil(region_len / bin_size))))
+                stats = bw.stats(bw_name, 0, region_len, nBins=n_data, type='mean')
+                if stats is None or len(stats) == 0:
+                    continue
+
+                data = np.array([0.0 if v is None else float(v) for v in stats])
+                values = np.zeros(n_bins)
+                values[:len(data)] = data[:n_bins]
+                positions = (np.arange(n_bins) + 0.5) * (chr_len / n_bins)
+
+                if smooth and n_bins >= 5:
+                    first_value, last_value = values[0], values[-1]
+                    padded = np.pad(values, 2, mode='edge')
+                    values = np.convolve(padded, np.ones(5) / 5.0, mode='valid')
+                    values[0] = first_value
+                    values[-1] = last_value
+                if depth_max is not None:
+                    values = np.minimum(values, depth_max)
+
+                rev_key = None
+                for key in (chr_name, bw_name):
+                    if key in reversed_chr:
+                        rev_key = key
+                        break
+                if rev_key is None and sample_name is not None:
+                    prefix = f'{sample_name}_'
+                    if chr_name.startswith(prefix) and chr_name[len(prefix):] in reversed_chr:
+                        rev_key = chr_name[len(prefix):]
+                if rev_key is not None:
+                    values = values[::-1]
+                    positions = chr_len - positions[::-1]
+                    reversed_names.add(chr_name)
+
+                if positions[0] > 0:
+                    positions = np.concatenate(([0.0], positions))
+                    values = np.concatenate(([values[0]], values))
+                if positions[-1] < chr_len:
+                    positions = np.concatenate((positions, [chr_len]))
+                    values = np.concatenate((values, [values[-1]]))
+
+                profiles[chr_name] = (positions, values)
+
+            if not profiles:
+                raise ValueError(f'No chromosome in {bigwig!r} matches the karyotype')
+
+            for chr_name in self.karyotype:
+                candidates = [chr_name, bw_names.get(chr_name)]
+                if sample_name is not None:
+                    prefix = f'{sample_name}_'
+                    if chr_name.startswith(prefix):
+                        candidates.append(chr_name[len(prefix):])
+                    candidates.append(f'{sample_name}_{chr_name}')
+                if any(name in reversed_chr for name in candidates if name is not None):
+                    reversed_names.add(chr_name)
+
+            for chr_name in reversed_names:
+                patch = self.chromosome_patches.get(chr_name)
+                if patch is None or getattr(patch, '_reversed', False):
+                    continue
+                chr_len, cent_start, cent_end = self.raw_karyotype[chr_name]
+                if chr_len - cent_end <= cent_start:
+                    continue
+                chr_len = chr_len / self.scale
+                if horizontal:
+                    center = (chr_len / 2.0, self.chr_coordinate[chr_name])
+                else:
+                    center = (self.chr_ycoordinate[chr_name], chr_len / 2.0)
+                patch.set_transform(
+                    Affine2D().rotate_deg_around(center[0], center[1], 180.0) + axes.transData
+                )
+                patch._reversed = True
+
+            r = self.radius
+            labeled = False
+            track_ymin = float('inf')
+            track_ymax = float('-inf')
+            track_xmin = float('inf')
+            track_xmax = float('-inf')
+            for chr_name, (positions, values) in profiles.items():
+                coords = positions / self.scale
+                if depth_max is not None:
+                    mode = 'linear'
+                else:
+                    mode = scale
+                    if mode == 'auto':
+                        positive = np.abs(values[values > 0])
+                        if positive.size:
+                            median = float(np.median(positive))
+                            dynamic = float(positive.max()) / median if median > 0 else float('inf')
+                        else:
+                            dynamic = 1.0
+                        if dynamic >= 100:
+                            mode = 'log'
+                        elif dynamic >= 10:
+                            mode = 'sqrt'
+                        else:
+                            mode = 'linear'
+                display_values = values
+                if mode == 'log':
+                    display_values = np.sign(values) * np.log1p(np.abs(values))
+                elif mode == 'sqrt':
+                    display_values = np.sign(values) * np.sqrt(np.abs(values))
+                chr_absmax = float(np.abs(display_values).max())
+                depth_scale = height / chr_absmax if chr_absmax > 0 else 0.0
+                curve = np.clip(display_values * depth_scale, -height, height)
+                if horizontal:
+                    if pos == 'top':
+                        base = self.chr_coordinate[chr_name] + r
+                        sign = 1.0
+                    else:
+                        base = self.chr_coordinate[chr_name] - r
+                        sign = -1.0
+                    y = base + sign * curve
+                    axes.fill_between(
+                        coords,
+                        base,
+                        y,
+                        facecolor=color,
+                        edgecolor='none',
+                        alpha=alpha,
+                        zorder=zorder,
+                        label=None if labeled else label
+                    )
+                    if linewidth:
+                        axes.plot(coords, y, color=color, linewidth=linewidth, zorder=zorder)
+                    track_ymin = min(track_ymin, float(y.min()))
+                    track_ymax = builtins.max(track_ymax, float(y.max()))
+                else:
+                    if pos == 'right':
+                        base = self.chr_ycoordinate[chr_name] + r
+                        sign = 1.0
+                    else:
+                        base = self.chr_ycoordinate[chr_name] - r
+                        sign = -1.0
+                    x = base + sign * curve
+                    axes.fill_betweenx(
+                        coords,
+                        base,
+                        x,
+                        facecolor=color,
+                        edgecolor='none',
+                        alpha=alpha,
+                        zorder=zorder,
+                        label=None if labeled else label
+                    )
+                    if linewidth:
+                        axes.plot(x, coords, color=color, linewidth=linewidth, zorder=zorder)
+                    track_xmin = min(track_xmin, float(x.min()))
+                    track_xmax = builtins.max(track_xmax, float(x.max()))
+                if not labeled:
+                    proxy = matplotlib.patches.Rectangle(
+                        (0, 0),
+                        width=1,
+                        height=1,
+                        facecolor=color,
+                        edgecolor='none',
+                        alpha=alpha,
+                        label=label
+                    )
+                    self.handles.append(proxy)
+                    labeled = True
+
+            if horizontal:
+                ymin, ymax = axes.get_ylim()
+                if track_ymin < float('inf'):
+                    ymin = min(ymin, track_ymin)
+                if track_ymax > float('-inf'):
+                    ymax = builtins.max(ymax, track_ymax)
+                axes.set_ylim(ymin, ymax)
+            else:
+                xmin, xmax = axes.get_xlim()
+                if track_xmin < float('inf'):
+                    xmin = min(xmin, track_xmin)
+                if track_xmax > float('-inf'):
+                    xmax = builtins.max(xmax, track_xmax)
+                axes.set_xlim(xmin, xmax)
+        finally:
+            bw.close()
 
         return axes
