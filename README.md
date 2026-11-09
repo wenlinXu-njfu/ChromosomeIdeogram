@@ -1,5 +1,5 @@
 [![PyPI - Version](https://img.shields.io/pypi/v/chromosome-ideogram)](https://pypi.org/project/chromosome-ideogram)
-<img src="https://github.com/wenlinXu-njfu/ChromosomeIdeogram/blob/main/image.png" align="right" width="30%">
+<img src="https://github.com/wenlinXu-njfu/ChromosomeIdeogram/blob/main/image.png?raw=true" align="right" width="30%">
 
 # ChromosomeIdeogram
 The magical companion of the chromosome map.
@@ -41,7 +41,7 @@ axes.legend(handles=ci.handles, loc=(0.5, 0.8), ncol=2)
 plt.savefig('example/vertical_chromosome.pdf', bbox_inches='tight')
 plt.savefig('example/vertical_chromosome.png', bbox_inches='tight')
 ```
-![image](https://github.com/wenlinXu-njfu/ChromosomeIdeogram/blob/main/example/vertical_chromosome.png)
+![image](https://github.com/wenlinXu-njfu/ChromosomeIdeogram/blob/main/example/vertical_chromosome.png?raw=true)
 
 **show reads tracks**
 ```python
@@ -74,7 +74,7 @@ axes.legend(handles=ci.handles, loc=(0.5, 0.8), ncol=2)
 plt.savefig('example/vertical_chromosome_with_tracks.pdf', bbox_inches='tight')
 plt.savefig('example/vertical_chromosome_with_tracks.png', bbox_inches='tight')
 ```
-![image](https://github.com/wenlinXu-njfu/ChromosomeIdeogram/blob/main/example/vertical_chromosome_with_tracks.png)
+![image](https://github.com/wenlinXu-njfu/ChromosomeIdeogram/blob/main/example/vertical_chromosome_with_tracks.png?raw=true)
 
 ### Draw the horizontal chromosome ideograms
 ```python
@@ -122,4 +122,4 @@ plt.subplots_adjust(hspace=9)  # Adjust the vertical distance between the two su
 plt.savefig('example/horizontal_chromosome.pdf', bbox_inches='tight')
 plt.savefig('example/horizontal_chromosome.png', bbox_inches='tight')
 ```
-![image](https://github.com/wenlinXu-njfu/ChromosomeIdeogram/blob/main/example/horizontal_chromosome.png)
+![image](https://github.com/wenlinXu-njfu/ChromosomeIdeogram/blob/main/example/horizontal_chromosome.png?raw=true)
