@@ -64,7 +64,7 @@ ci.annotations(axes=axes, annotations='example/satellite_DNA.bed', height=None)
 
 # show HiFi reads pile up
 ci.show_tracks(axes=axes, bigwig='example/hapA_HiFi.bw', sample_name='Pla', pos='left', bin_size=10000, max=110, color='steelblue', label='HiFi reads mapped hapA')
-ci.show_tracks(axes=axes, bigwig='example/hapB_HiFi.bw', sample_name='Pla', pos='right', bin_size=10000, max=110, color='steelblue', label='HiFi reads mapped hapB')
+ci.show_tracks(axes=axes, bigwig='example/hapB_HiFi.bw', sample_name='Pla', pos='right', bin_size=10000, max=110, color='tomato', label='HiFi reads mapped hapB')
 
 # show chromosome 14 synteny
 ci.draw_synteny(axes=axes, synteny_file='example/Chr14_SV.bed')
